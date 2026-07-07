@@ -1,0 +1,26 @@
+# mailscan systemd service (system unit).
+#
+# Install (edit User= / paths if your username or repo location differ):
+#   sudo cp systemd/mailscan.service /etc/systemd/system/mailscan.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now mailscan.service
+#   journalctl -u mailscan -f          # watch it work
+#
+# SupplementaryGroups=scanner gives the service access to the ES-50 via the
+# udev rule, so no `sg`/re-exec dance is needed here.
+
+[Unit]
+Description=mailscan — auto-scan fed sheets into one PDF per mail item
+After=network.target
+
+[Service]
+Type=simple
+User=alessandro.romano
+SupplementaryGroups=scanner
+WorkingDirectory=/home/alessandro.romano/mailscan
+ExecStart=/home/alessandro.romano/mailscan/.venv/bin/mailscan run
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

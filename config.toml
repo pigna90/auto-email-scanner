@@ -1,0 +1,28 @@
+# mailscan configuration (shipped defaults).
+# Copy to ~/.config/mailscan/config.toml to override per-machine, or point
+# $MAILSCAN_CONFIG at your own file.
+
+# --- scanner / SANE ---
+device      = "epsonds"
+source      = "ADF Front"
+mode        = "Color"        # Color | Gray | Lineart
+resolution  = 300            # 200 | 300 | 400 | 600
+usb_id      = "04b8:016c"    # Epson ES-50
+
+# --- batching (the timeout delimiter, v1) ---
+# Finalize the current mail item after this many seconds with no new sheet.
+email_timeout        = 8.0
+# After this much total silence, stop polling so the scanner can sleep.
+# (Kept generous so gathering the next mail item doesn't cut the session off.)
+session_idle_timeout = 180.0
+# How often to check the feeder while a session is active.
+poll_interval        = 2.0
+
+# --- wake behaviour ---
+# true  = stay silent while the scanner sleeps; wake on button press (udev).
+# false = poll whenever the scanner is present on the USB bus.
+require_wake = true
+
+# --- output ---
+output_dir      = "~/scans"
+filename_prefix = "mail"
