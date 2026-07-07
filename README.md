@@ -192,6 +192,36 @@ journalctl -u mailscan -f          # watch it work
 The unit sets `SupplementaryGroups=scanner`, so the service has scanner access
 with no extra steps.
 
+### Upload to Google Drive + Telegram notifications (optional)
+
+A separate timer moves each finished PDF to Google Drive (via rclone) and posts
+an "open in Drive" link to a Telegram chat. It's kept out of the scanner daemon
+on purpose — a Drive/network hang must never stall scanning.
+
+Prerequisites: a working [rclone](https://rclone.org) remote pointing at Drive
+(default name `MailScans`), and a Telegram bot ([@BotFather](https://t.me/BotFather))
+plus the target chat id.
+
+1. **Put the Telegram secrets in `.env`** (repo root; gitignored — never committed):
+   ```bash
+   cp .env.example .env
+   # edit .env: TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID
+   ```
+   To find a chat id: message the bot (or add it to a group and @mention it), then
+   read `chat.id` from `https://api.telegram.org/bot<token>/getUpdates`. Group ids
+   are negative. Leave the vars blank to upload without notifying.
+
+2. **Install the timer:**
+   ```bash
+   sudo cp systemd/mailscan-upload.service systemd/mailscan-upload.timer /etc/systemd/system/
+   sudo systemctl daemon-reload
+   sudo systemctl enable --now mailscan-upload.timer
+   journalctl -u mailscan-upload -f     # watch uploads
+   ```
+
+The Drive folder is `drive_remote` in `config.toml` (default `MailScans:MailScans`).
+Test a run by hand any time with `mailscan upload`.
+
 ---
 
 ## Usage
@@ -215,6 +245,7 @@ CLI reference:
 ```bash
 uv run mailscan run                 # the daemon
 uv run mailscan scan-page out.pdf   # scan one sheet (test)
+uv run mailscan upload              # push finished PDFs to Drive + notify
 uv run mailscan doctor              # environment check
 uv run mailscan -v run              # debug logging
 ```
@@ -241,6 +272,11 @@ or pass `-c path/to/config.toml`.
 | `resolution` | `300` | 200 / 300 / 400 / 600 dpi |
 | `mode` | `Color` | Color / Gray / Lineart |
 | `output_dir` | `~/scans` | where finished PDFs land |
+| `drive_remote` | `MailScans:MailScans` | rclone `remote:path` uploads go to |
+| `upload_min_age` | `60.0` | skip PDFs younger than this (may be mid-write) |
+
+Telegram creds (`TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID`) come from `.env`, not
+this table — see [the upload section](#upload-to-google-drive--telegram-notifications-optional).
 
 **Tuning the timeout:** raise `email_timeout` if you tend to pause mid-mail and
 get split; lower it if consecutive mails get merged together.

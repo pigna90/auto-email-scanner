@@ -31,3 +31,16 @@ require_wake = true
 # --- output ---
 output_dir      = "~/scans"
 filename_prefix = "mail"
+
+# --- upload (rclone → Google Drive), run by mailscan-upload.timer ---
+# rclone "remote:path" finished PDFs are moved to (must match rclone.conf).
+drive_remote   = "MailScans:MailScans"
+# Skip PDFs younger than this (seconds) — they may still be mid-write.
+upload_min_age = 60.0
+
+# --- Telegram notification (sent once a PDF is on Drive) ---
+# Prefer the TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID env vars (see .env.example)
+# — they override these and keep the token out of this checked-in file.
+# Leave blank to disable notifications.
+telegram_bot_token = ""
+telegram_chat_id   = ""

@@ -11,3 +11,8 @@ build/
 /scans/
 work/
 *.pdf
+
+# secrets (the .example is tracked; the real file must never be)
+telegram.env
+*.env
+!*.env.example

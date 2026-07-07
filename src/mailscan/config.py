@@ -54,6 +54,20 @@ class Config:
     )
     filename_prefix: str = "mail"
 
+    # --- upload (rclone → Google Drive) ---
+    # rclone "remote:path" the finished PDFs are moved to. Must match the
+    # remote configured in ~/.config/rclone/rclone.conf.
+    drive_remote: str = "MailScans:MailScans"
+    # Skip PDFs younger than this many seconds — they may still be mid-write.
+    upload_min_age: float = 60.0
+
+    # --- Telegram notification (sent after a PDF lands on Drive) ---
+    # Secrets: prefer the TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID environment
+    # variables (env wins over these fields) so the token never has to live in
+    # the checked-in config.toml. Leave blank to disable notifications.
+    telegram_bot_token: str = ""
+    telegram_chat_id: str = ""
+
     @classmethod
     def load(cls, explicit: str | os.PathLike | None = None) -> "Config":
         path = _find_config(explicit)
@@ -70,6 +84,15 @@ class Config:
                 value = Path(os.path.expanduser(str(value)))
             kwargs[key] = value
         cfg = cls(**kwargs)
+        # Secrets from the environment win over anything in the TOML, so the
+        # bot token can be injected by systemd (EnvironmentFile=) and kept out
+        # of the checked-in config.
+        env_token = os.environ.get("TELEGRAM_BOT_TOKEN")
+        env_chat = os.environ.get("TELEGRAM_CHAT_ID")
+        if env_token:
+            cfg.telegram_bot_token = env_token
+        if env_chat:
+            cfg.telegram_chat_id = env_chat
         cfg._source_path = path  # type: ignore[attr-defined]
         return cfg
 

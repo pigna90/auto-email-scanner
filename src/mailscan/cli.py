@@ -11,9 +11,11 @@ import sys
 from pathlib import Path
 
 from .config import Config, load_config
-from . import scanner, session
+from . import scanner, session, upload
 from .merge import images_to_pdf, save_page_image
 from .scanner import ScanResult
+
+log = logging.getLogger("mailscan")
 
 
 def _have_scanner_access() -> bool | None:
@@ -78,6 +80,14 @@ def cmd_scan_page(cfg: Config, args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_upload(cfg: Config, args: argparse.Namespace) -> int:
+    # No scanner access needed — this only touches the filesystem, rclone and
+    # the network, so we skip the `sg scanner` re-exec.
+    n = upload.upload_pending(cfg)
+    log.info("Upload run complete: %d file(s).", n)
+    return 0
+
+
 def cmd_doctor(cfg: Config, args: argparse.Namespace) -> int:
     print("mailscan doctor")
     print(f"  config file        : {getattr(cfg, '_source_path', None) or '(defaults)'}")
@@ -111,10 +121,16 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("scan-page", help="scan a single sheet to a file (test)")
     sp.add_argument("output", help="destination .pdf (or .png) path")
     sub.add_parser("doctor", help="check scanner + environment")
+    sub.add_parser("upload", help="move finished PDFs to Drive + notify Telegram")
     return p
 
 
-_DISPATCH = {"run": cmd_run, "scan-page": cmd_scan_page, "doctor": cmd_doctor}
+_DISPATCH = {
+    "run": cmd_run,
+    "scan-page": cmd_scan_page,
+    "doctor": cmd_doctor,
+    "upload": cmd_upload,
+}
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -1,0 +1,13 @@
+# Runs mailscan-upload.service every 2 minutes (and 1 min after boot).
+# Persistent=true catches up on a run missed while the Pi was off.
+
+[Unit]
+Description=Upload scanned PDFs to Google Drive every 2 minutes
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=2min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

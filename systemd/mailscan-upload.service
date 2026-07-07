@@ -1,0 +1,37 @@
+# mailscan uploader (system unit, oneshot — triggered by the .timer).
+#
+# Moves finished PDFs from ~/scans up to Google Drive (still via rclone under
+# the hood), then — for each uploaded file — reads back its Drive id, builds an
+# owner-only link, and posts it to Telegram. rclone verifies size/hash on the
+# remote before deleting the local copy, so a half-uploaded file is never lost.
+# The upload_min_age config skips any PDF still being written. Kept separate
+# from the scanner daemon on purpose: a Drive/network hang must never stall
+# scanning.
+#
+# Install:
+#   sudo cp systemd/mailscan-upload.service systemd/mailscan-upload.timer /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now mailscan-upload.timer
+#   journalctl -u mailscan-upload -f     # watch uploads
+#
+# Telegram secrets live in the repo-root .env (gitignored, NOT checked in):
+# TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID (see .env.example). The EnvironmentFile=
+# below loads it; the env vars override config.toml, so the token never touches
+# the checked-in config.
+#
+# Change the Drive destination via `drive_remote` in config.toml
+# (default MailScans:MailScans — the "MailScans" rclone remote → a Drive folder
+# named "MailScans").
+
+[Unit]
+Description=mailscan uploader — move scanned PDFs to Google Drive + notify Telegram
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=alessandro.romano
+WorkingDirectory=/home/alessandro.romano/mailscan
+Environment=RCLONE_CONFIG=/home/alessandro.romano/.config/rclone/rclone.conf
+EnvironmentFile=-/home/alessandro.romano/mailscan/.env
+ExecStart=/home/alessandro.romano/mailscan/.venv/bin/mailscan upload
