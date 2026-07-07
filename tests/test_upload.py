@@ -19,15 +19,16 @@ def test_drive_view_link_is_owner_link():
     assert link == "https://drive.google.com/file/d/1AbCdEf/view"
 
 
-def test_format_message_includes_name_and_link():
+def test_format_message_links_behind_a_label():
     msg = upload.format_message("mail_2026-07-07_101500.pdf", "https://x/y")
-    assert "mail_2026-07-07_101500.pdf" in msg
-    assert "https://x/y" in msg
+    assert "New document scanned." in msg
+    # URL is inside an <a href> — behind the "Drive link" label, not shown raw.
+    assert '<a href="https://x/y">Drive link</a>' in msg
 
 
 def test_format_message_without_link_notes_it():
     msg = upload.format_message("mail.pdf", None)
-    assert "mail.pdf" in msg
+    assert "New document scanned." in msg
     assert "unavailable" in msg.lower()
 
 

@@ -11,6 +11,7 @@ back the Drive file id, build an owner-only link, and post it to Telegram.
 
 from __future__ import annotations
 
+import html
 import json
 import logging
 import subprocess
@@ -35,13 +36,17 @@ def drive_view_link(file_id: str) -> str:
 
 
 def format_message(name: str, link: str | None) -> str:
-    """The Telegram message body for a freshly-uploaded PDF."""
+    """The Telegram message body (HTML) for a freshly-uploaded PDF.
+
+    Sent with parse_mode=HTML so the URL hides behind a "Drive link" label
+    instead of showing the raw address. *name* is unused in the body (kept short
+    on purpose) but still logged by the caller."""
     if link:
-        return f"\U0001F4EC New mail scanned & saved to Drive:\n{name}\n{link}"
-    return (
-        f"\U0001F4EC New mail scanned & saved to Drive:\n{name}\n"
-        "(Drive link unavailable)"
-    )
+        return (
+            "\U0001F4EC New document scanned.\n"
+            f'\U0001F517 <a href="{html.escape(link, quote=True)}">Drive link</a>'
+        )
+    return "\U0001F4EC New document scanned.\n(Drive link unavailable)"
 
 
 def _rclone(args: list[str], *, capture: bool = False) -> subprocess.CompletedProcess:
@@ -76,7 +81,12 @@ def send_telegram(token: str, chat_id: str, text: str) -> None:
     """POST a message to the Telegram Bot API. Raises on HTTP/network error."""
     url = f"https://api.telegram.org/bot{token}/sendMessage"
     data = urllib.parse.urlencode(
-        {"chat_id": chat_id, "text": text, "disable_web_page_preview": "false"}
+        {
+            "chat_id": chat_id,
+            "text": text,
+            "parse_mode": "HTML",
+            "disable_web_page_preview": "true",
+        }
     ).encode()
     req = urllib.request.Request(url, data=data, method="POST")
     with urllib.request.urlopen(req, timeout=_TELEGRAM_TIMEOUT) as resp:
