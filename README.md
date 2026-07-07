@@ -15,7 +15,37 @@ scanner — it runs as a background service on the Pi.
 
 ---
 
+## Motivation
+
+In Germany you still get a *lot* of paper mail — letters from the tax office,
+insurers, the city, the landlord — and it keeps coming. Every time, I hit the
+same two problems: I can't easily tell what a letter is for (which ones matter
+for taxes, which need a reply, which are junk), and as a foreigner the
+bureaucratic German doesn't help — the language is dense even when the content
+is routine. So the letters pile up in a drawer for months, unread and
+unsorted, until something is overdue.
+
+mailscan is my not-too-expensive way out of that drawer. A cheap portable
+scanner — an **Epson WorkForce ES-50** — and a Raspberry Pi that already sits
+on my desk: I feed each letter as
+it arrives, it becomes one tidy PDF per mail item, lands in Google Drive, and
+pings me on Telegram — with an optional button that summarizes the letter in
+plain language so I actually know what it says and what, if anything, I need to
+do. No expensive service, no subscription, and nothing left rotting in a drawer.
+
+**How I actually use it, day to day:**
+
+1. Open the letter.
+2. Feed the pages into the ES-50 — that's it, I'm done thinking about it.
+3. Forget about it: it's already saved as a PDF in Google Drive.
+4. A Telegram notification tells me it landed, with a link.
+5. If I want to know what it says, I tap **Summarize** and get it in plain
+   language — otherwise I just leave it.
+
+---
+
 ## Contents
+- [Motivation](#motivation)
 - [How it works](#how-it-works)
 - [Hardware / OS](#hardware--os)
 - [Part 1 — Installing the scanner driver (reproducible)](#part-1--installing-the-scanner-driver-reproducible)

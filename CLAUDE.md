@@ -74,7 +74,9 @@ before building the PDF itself.
 
 Module map: `cli.py` (arg parsing + dispatch), `session.py` (the loop),
 `scanner.py` (USB/SANE/wake), `triggers.py` (delimiters), `merge.py`
-(image→PDF), `config.py` (TOML loading), `upload.py` (Drive upload + Telegram).
+(image→PDF), `config.py` (TOML loading), `upload.py` (Drive upload + Telegram),
+`bot.py` (Telegram summary-button poller), `summarize.py` (PDF→Italian summary
+via Claude).
 
 ## Upload + Telegram notification (`upload.py`)
 
@@ -99,6 +101,47 @@ by the unit's `EnvironmentFile=`), which `Config.load` reads and **override** th
 The pure helpers (`drive_view_link`, `format_message`, file selection) are tested
 in `tests/test_upload.py`; the rclone/urllib calls are the untested hardware-like
 seam.
+
+## On-demand summary button (`bot.py` + `summarize.py`)
+
+A **separate, on-demand flow** bolted onto the upload notification — scanning and
+uploading never call an LLM. When `upload.py` posts a PDF's Drive link, it also
+attaches an inline **"🧠 Summarize"** button whose `callback_data` is
+`sum:<drive_file_id>` (only if `anthropic_api_key` is set). Nothing happens until
+the user taps it.
+
+`mailscan bot` (run by `mailscan-bot.timer`, every 30s) polls Telegram
+`getUpdates` for those taps. The button's `callback_data` is `sum:<pdf_name>`
+(the **name**, not the Drive id) so the bot can find a local copy without a Drive
+call. Per tap it: acks the button, loads the PDF via `_load_pdf` — **local cache
+first, Drive `rclone cat` fallback** — sends it to Claude as a base64 `document`
+block (`summarize.py` — the PDFs are scanned *images*, so we use a vision model,
+**no OCR step**), and posts the summary as a reply. The summary is three fixed
+sections — **Summary / Actions / Critical** — enforced by `build_prompt()`. **All
+code/config text is English**; only the LLM's output language is configurable,
+via `summary_language` (default `"Italian"`), which `build_prompt()` interpolates
+into the instruction.
+
+The **local cache** is why the button carries the name: `upload.py` `copy2`s each
+PDF into `cache_dir` (default `~/.local/share/mailscan/cache`, **outside**
+`output_dir` so it's never re-uploaded) *before* the `rclone moveto`, then prunes
+to the newest `local_cache_size` (default 10). The cache is pure best-effort — if
+it fails, upload is unaffected and the bot just falls back to Drive. The upload
+path's verify-then-delete `moveto` is untouched.
+
+Same philosophy as the uploader: **best-effort, timer-driven, never stalls
+scanning** — an Anthropic/Drive hang can't touch the daemon. Everything after the
+tap is caught-and-logged; a failure sends a short error reply, never crashes. The
+getUpdates offset is persisted in `~/.local/share/mailscan/bot-offset` so taps
+aren't reprocessed across runs. Model is `summary_model` (default
+`claude-haiku-4-5` — cheapest vision model, plenty for a few pages).
+
+Secrets: `ANTHROPIC_API_KEY` lives in the same `.env` (`EnvironmentFile=`) as the
+Telegram creds and **overrides** the `anthropic_api_key` TOML field, so no key is
+in the checked-in config. Blank key = the button is omitted; uploads still run.
+The Anthropic call (via the `anthropic` SDK) and the rclone/urllib calls are the
+untested seam; the pure helpers (`build_pdf_message`, `parse_summary_callback`,
+offset I/O, `format_summary`, `build_summary_keyboard`) are tested.
 
 ## Config
 

@@ -32,6 +32,31 @@ def test_format_message_without_link_notes_it():
     assert "unavailable" in msg.lower()
 
 
+def test_build_summary_keyboard_carries_name():
+    import json
+
+    markup = json.loads(upload.build_summary_keyboard("mail_2026-07-07_182755.pdf"))
+    button = markup["inline_keyboard"][0][0]
+    assert button["callback_data"] == "sum:mail_2026-07-07_182755.pdf"
+    # callback_data must stay under Telegram's 64-byte limit.
+    assert len(button["callback_data"].encode()) <= 64
+
+
+def test_prune_cache_keeps_newest(tmp_path):
+    import os
+
+    now = time.time()
+    for i in range(5):
+        p = tmp_path / f"mail_{i}.pdf"
+        p.write_bytes(b"%PDF")
+        os.utime(p, (now + i, now + i))  # mail_4 newest, mail_0 oldest
+
+    upload._prune_cache(tmp_path, keep=3)
+
+    remaining = sorted(p.name for p in tmp_path.glob("*.pdf"))
+    assert remaining == ["mail_2.pdf", "mail_3.pdf", "mail_4.pdf"]
+
+
 def test_env_overrides_config_secrets(tmp_path, monkeypatch):
     cfg_file = tmp_path / "config.toml"
     cfg_file.write_text(
@@ -72,6 +97,7 @@ def test_upload_pending_skips_young_files_and_notifies(tmp_path, monkeypatch):
     moved, notified = [], []
     monkeypatch.setattr(upload, "_move_to_drive", lambda c, p: moved.append(p.name))
     monkeypatch.setattr(upload, "_drive_file_id", lambda c, name: "ID_" + name)
+    monkeypatch.setattr(upload, "_cache_pdf", lambda c, p: None)  # skip disk cache
     monkeypatch.setattr(
         upload, "_notify", lambda c, name, link: notified.append((name, link))
     )
@@ -83,6 +109,41 @@ def test_upload_pending_skips_young_files_and_notifies(tmp_path, monkeypatch):
     assert notified == [
         ("mail_old.pdf", "https://drive.google.com/file/d/ID_mail_old.pdf/view")
     ]
+
+
+def test_notify_attaches_button_only_with_key(monkeypatch):
+    sent = {}
+    monkeypatch.setattr(
+        upload,
+        "send_telegram",
+        lambda t, c, text, **kw: sent.update(reply_markup=kw.get("reply_markup")),
+    )
+
+    # Key configured → button present, callback carries the PDF name.
+    cfg = Config(
+        telegram_bot_token="t", telegram_chat_id="c", anthropic_api_key="k"
+    )
+    upload._notify(cfg, "mail.pdf", "https://x/y")
+    assert sent["reply_markup"] and "sum:mail.pdf" in sent["reply_markup"]
+
+    # No key → no button.
+    sent.clear()
+    cfg_nokey = Config(telegram_bot_token="t", telegram_chat_id="c")
+    upload._notify(cfg_nokey, "mail.pdf", "https://x/y")
+    assert sent["reply_markup"] is None
+
+
+def test_cache_pdf_copies_and_prunes(tmp_path, monkeypatch):
+    out = tmp_path / "scans"
+    out.mkdir()
+    pdf = out / "mail_new.pdf"
+    pdf.write_bytes(b"%PDF-1.4 body")
+    cache = tmp_path / "cache"
+    cfg = Config(cache_dir=cache, local_cache_size=2)
+
+    upload._cache_pdf(cfg, pdf)
+
+    assert (cache / "mail_new.pdf").read_bytes() == b"%PDF-1.4 body"
 
 
 def test_upload_pending_no_dir_is_noop(tmp_path):

@@ -37,6 +37,10 @@ filename_prefix = "mail"
 drive_remote   = "MailScans:MailScans"
 # Skip PDFs younger than this (seconds) — they may still be mid-write.
 upload_min_age = 60.0
+# After upload, keep a local copy of the newest N PDFs so a summary tapped right
+# after the notification reads it locally instead of re-downloading from Drive.
+# (cache_dir defaults to ~/.local/share/mailscan/cache; override here if needed.)
+local_cache_size = 10
 
 # --- Telegram notification (sent once a PDF is on Drive) ---
 # Prefer the TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID env vars (see .env.example)
@@ -44,3 +48,15 @@ upload_min_age = 60.0
 # Leave blank to disable notifications.
 telegram_bot_token = ""
 telegram_chat_id   = ""
+
+# --- on-demand summary ("Summarize" button → Claude), run by mailscan-bot.timer ---
+# Purely on-demand: nothing here runs while scanning or uploading. Prefer the
+# ANTHROPIC_API_KEY env var (see .env.example) — it overrides this and keeps the
+# key out of this checked-in file. Blank = no button (uploads still run).
+anthropic_api_key = ""
+# Vision-capable model used for the summary. Haiku is cheapest and plenty for a
+# few scanned pages; use claude-sonnet-5 / claude-opus-4-8 for higher quality.
+summary_model     = "claude-haiku-4-5"
+# Language the summary is written in (any language name the model understands,
+# e.g. "Italian", "English", "German"). Only affects the LLM output.
+summary_language  = "Italian"

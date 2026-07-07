@@ -60,6 +60,15 @@ class Config:
     drive_remote: str = "MailScans:MailScans"
     # Skip PDFs younger than this many seconds — they may still be mid-write.
     upload_min_age: float = 60.0
+    # After uploading, a copy of each PDF is kept here (newest `local_cache_size`
+    # only) so a summary tapped right after the notification reads it locally
+    # instead of re-downloading from Drive. Kept outside output_dir so the
+    # uploader never re-uploads cached files. Best-effort — losing the cache
+    # just means the bot falls back to Drive.
+    cache_dir: Path = field(
+        default_factory=lambda: Path.home() / ".local/share/mailscan/cache"
+    )
+    local_cache_size: int = 10
 
     # --- Telegram notification (sent after a PDF lands on Drive) ---
     # Secrets: prefer the TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID environment
@@ -67,6 +76,19 @@ class Config:
     # the checked-in config.toml. Leave blank to disable notifications.
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
+
+    # --- on-demand summary (the "Summarize" button → Claude), run by
+    #     mailscan-bot.timer. Purely on-demand: nothing here runs while scanning
+    #     or uploading. ---
+    # Like the Telegram secrets, prefer the ANTHROPIC_API_KEY env var (it wins
+    # over this field) so the key stays out of the checked-in config. Leave
+    # blank to disable summaries — the upload path then omits the button.
+    anthropic_api_key: str = ""
+    summary_model: str = "claude-haiku-4-5"
+    # Language the summary is written in (any language name the model
+    # understands, e.g. "Italian", "English", "German"). Only affects the LLM's
+    # output — all code/config text stays English.
+    summary_language: str = "Italian"
 
     @classmethod
     def load(cls, explicit: str | os.PathLike | None = None) -> "Config":
@@ -80,7 +102,7 @@ class Config:
         for key, value in data.items():
             if key not in known:
                 continue
-            if key in ("output_dir", "work_dir"):
+            if key in ("output_dir", "work_dir", "cache_dir"):
                 value = Path(os.path.expanduser(str(value)))
             kwargs[key] = value
         cfg = cls(**kwargs)
@@ -89,10 +111,13 @@ class Config:
         # of the checked-in config.
         env_token = os.environ.get("TELEGRAM_BOT_TOKEN")
         env_chat = os.environ.get("TELEGRAM_CHAT_ID")
+        env_key = os.environ.get("ANTHROPIC_API_KEY")
         if env_token:
             cfg.telegram_bot_token = env_token
         if env_chat:
             cfg.telegram_chat_id = env_chat
+        if env_key:
+            cfg.anthropic_api_key = env_key
         cfg._source_path = path  # type: ignore[attr-defined]
         return cfg
 

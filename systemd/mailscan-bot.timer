@@ -1,0 +1,17 @@
+# Runs mailscan-bot.service every 30 seconds (and 30s after boot) to check for
+# "Summarize" button taps. 30s is the worst-case delay before a tap is
+# acknowledged — fine for scanned mail, and it keeps the poller in the same
+# decoupled, best-effort spirit as the uploader (no always-on daemon).
+# Persistent=false: a missed poll is harmless — pending taps are still queued by
+# Telegram and picked up on the next tick.
+
+[Unit]
+Description=Poll Telegram for mailscan summary-button taps every 30 seconds
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=30s
+Persistent=false
+
+[Install]
+WantedBy=timers.target

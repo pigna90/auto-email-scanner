@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 
 from .config import Config, load_config
-from . import scanner, session, upload
+from . import bot, scanner, session, upload
 from .merge import images_to_pdf, save_page_image
 from .scanner import ScanResult
 
@@ -88,6 +88,13 @@ def cmd_upload(cfg: Config, args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_bot(cfg: Config, args: argparse.Namespace) -> int:
+    # No scanner access needed — only Telegram, rclone, and the Anthropic API.
+    n = bot.poll_once(cfg)
+    log.info("Bot poll complete: %d summary request(s) handled.", n)
+    return 0
+
+
 def cmd_doctor(cfg: Config, args: argparse.Namespace) -> int:
     print("mailscan doctor")
     print(f"  config file        : {getattr(cfg, '_source_path', None) or '(defaults)'}")
@@ -122,6 +129,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("output", help="destination .pdf (or .png) path")
     sub.add_parser("doctor", help="check scanner + environment")
     sub.add_parser("upload", help="move finished PDFs to Drive + notify Telegram")
+    sub.add_parser("bot", help="poll Telegram for summary-button taps + reply")
     return p
 
 
@@ -130,6 +138,7 @@ _DISPATCH = {
     "scan-page": cmd_scan_page,
     "doctor": cmd_doctor,
     "upload": cmd_upload,
+    "bot": cmd_bot,
 }
 
 
