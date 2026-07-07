@@ -34,6 +34,11 @@ class Config:
     session_idle_timeout: float = 60.0
     # How often to check the feeder while a session is active.
     poll_interval: float = 2.0
+    # After a session ends we stop touching USB and wait for the scanner to
+    # drop off the bus (sleep). If it stays enumerated but idle for this many
+    # seconds (some ES-50 firmware does this instead of disconnecting), give up
+    # waiting and re-arm a scan session anyway, so a fed sheet is never ignored.
+    sleep_wait_timeout: float = 120.0
 
     # --- wake behaviour ---
     # If True, when idle we wait (via udev) for the scanner to reconnect

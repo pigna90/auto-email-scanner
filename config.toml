@@ -17,6 +17,11 @@ email_timeout        = 8.0
 session_idle_timeout = 180.0
 # How often to check the feeder while a session is active.
 poll_interval        = 2.0
+# After a session ends we wait (without touching USB) for the scanner to drop
+# off the bus so it can sleep. If it stays enumerated but idle this long, stop
+# waiting and re-arm a scan session anyway — otherwise a scanner that won't
+# disconnect leaves the daemon deaf to fed sheets.
+sleep_wait_timeout   = 120.0
 
 # --- wake behaviour ---
 # true  = stay silent while the scanner sleeps; wake on button press (udev).

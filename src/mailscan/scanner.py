@@ -169,13 +169,25 @@ def wait_for_wake(cfg: Config) -> None:
             return
 
 
-def wait_for_sleep(cfg: Config, poll_interval: float = 3.0) -> None:
-    """Block until the scanner drops off the USB bus (sleeps on its own timer).
+def wait_for_sleep(
+    cfg: Config, timeout: float | None = None, poll_interval: float = 3.0
+) -> bool:
+    """Block until the scanner drops off the USB bus (sleeps on its own timer),
+    or until `timeout` seconds pass. Returns True if it slept, False if it timed
+    out while still present.
 
     Only reads sysfs — never touches the scanner over USB — so it does not keep
     it awake. Used after a session ends so we let it sleep before re-arming.
+
+    The timeout matters because some ES-50 firmware goes idle *without*
+    disconnecting: without a cap this loops forever and the daemon goes deaf to
+    fed sheets (see run_daemon for how the caller recovers).
     """
     import time
 
+    deadline = None if timeout is None else time.monotonic() + timeout
     while present(cfg):
+        if deadline is not None and time.monotonic() >= deadline:
+            return False
         time.sleep(poll_interval)
+    return True

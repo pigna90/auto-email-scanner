@@ -39,9 +39,18 @@ def run_daemon(cfg: Config, delimiter: Delimiter | None = None) -> None:
             _run_session(cfg, delimiter)
             # Session ended by idle while the scanner is still awake: wait for
             # it to sleep before re-arming, so we don't immediately re-poll.
+            # But cap the wait — some ES-50 firmware goes idle without ever
+            # disconnecting, and an unbounded wait here wedges the daemon deaf
+            # to fed sheets. If it won't sleep, loop back and re-run a session
+            # (present() is still true, so we skip wait_for_wake and scan again).
             if cfg.require_wake and scanner.present(cfg):
                 log.info("Waiting for the scanner to sleep before re-arming.")
-                scanner.wait_for_sleep(cfg)
+                if not scanner.wait_for_sleep(cfg, timeout=cfg.sleep_wait_timeout):
+                    log.info(
+                        "Scanner still present after %.0fs without sleeping — "
+                        "re-arming a scan session so fed sheets aren't ignored.",
+                        cfg.sleep_wait_timeout,
+                    )
         except Exception:  # noqa: BLE001 - the daemon must survive anything
             # Back off well clear of the scanner's timing so we never hammer a
             # not-yet-ready or momentarily-wedged device into a worse state.
