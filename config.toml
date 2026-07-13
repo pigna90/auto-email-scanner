@@ -37,10 +37,6 @@ filename_prefix = "mail"
 drive_remote   = "MailScans:MailScans"
 # Skip PDFs younger than this (seconds) — they may still be mid-write.
 upload_min_age = 60.0
-# After upload, keep a local copy of the newest N PDFs so a summary tapped right
-# after the notification reads it locally instead of re-downloading from Drive.
-# (cache_dir defaults to ~/.local/share/mailscan/cache; override here if needed.)
-local_cache_size = 10
 
 # --- Telegram notification (sent once a PDF is on Drive) ---
 # Prefer the TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID env vars (see .env.example)
@@ -49,14 +45,38 @@ local_cache_size = 10
 telegram_bot_token = ""
 telegram_chat_id   = ""
 
-# --- on-demand summary ("Summarize" button → Claude), run by mailscan-bot.timer ---
-# Purely on-demand: nothing here runs while scanning or uploading. Prefer the
-# ANTHROPIC_API_KEY env var (see .env.example) — it overrides this and keeps the
-# key out of this checked-in file. Blank = no button (uploads still run).
+# --- LLM classification + summary (one Claude call in the upload path) ---
+# Prefer the ANTHROPIC_API_KEY env var (see .env.example) — it overrides this and
+# keeps the key out of this checked-in file. Blank = no LLM: files keep their
+# timestamp name, go to the default category, and the message carries no summary.
 anthropic_api_key = ""
-# Vision-capable model used for the summary. Haiku is cheapest and plenty for a
-# few scanned pages; use claude-sonnet-5 / claude-opus-4-8 for higher quality.
-summary_model     = "claude-haiku-4-5"
 # Language the summary is written in (any language name the model understands,
-# e.g. "Italian", "English", "German"). Only affects the LLM output.
+# e.g. "Italian", "English", "German"). Shown inline in the Telegram message
+# inside an expandable blockquote. Only affects the LLM output.
 summary_language  = "Italian"
+
+# --- automatic classification (one Claude call → title + category + summary),
+#     run in the upload path. Best-effort: on failure the file keeps its
+#     mail_<ts>.pdf name and goes to `default_category`. See namer.py. ---
+# Claude vision model that reads the whole PDF (reuses the ANTHROPIC_API_KEY /
+# anthropic_api_key above). Blank key = classification off (files keep their
+# timestamp name and the default folder).
+naming_claude_model  = "claude-haiku-4-5"
+# File name (title) language — the model translates into it from the (often
+# German) document. English keeps every file name uniform.
+naming_language      = "English"
+# Where a document goes if a valid category can't be obtained, and how many
+# extra times to re-ask the model when it returns an unknown category.
+default_category     = "other"
+classify_max_retries = 3
+
+# Categories the model must choose from. Each key is the Drive subfolder name;
+# each value is the description shown to the model to guide the choice. "other"
+# is the fallback. Edit / add / remove freely — keep the set tight.
+[categories]
+medical    = "Health and medical matters: doctors, hospitals, prescriptions, lab results and medical reports, therapy, vaccinations — anything health-related."
+insurance  = "Insurance policies, contributions and claims of any kind: health insurance (Krankenkasse/AOK), liability (Haftpflicht), car (KFZ), home/contents (Hausrat), life, legal protection."
+finance    = "Banking and money: bank and account statements, the tax office and tax returns, invoices and bills to be paid, payment and transfer confirmations, salary and payslips, loans, investments."
+household  = "Home and utilities: electricity, gas, water, heating, internet, telephone/mobile, rent and landlord correspondence, home services and repairs."
+government = "Official and state communications: city hall/Bürgeramt, tax authority, police, courts, residence and registration, pensions, the public broadcasting fee (Rundfunkbeitrag/ARD/ZDF)."
+other      = "Anything that does not clearly belong to one of the categories above."

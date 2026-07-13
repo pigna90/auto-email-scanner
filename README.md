@@ -29,18 +29,19 @@ mailscan is my not-too-expensive way out of that drawer. A cheap portable
 scanner — an **Epson WorkForce ES-50** — and a Raspberry Pi that already sits
 on my desk: I feed each letter as
 it arrives, it becomes one tidy PDF per mail item, lands in Google Drive, and
-pings me on Telegram — with an optional button that summarizes the letter in
-plain language so I actually know what it says and what, if anything, I need to
-do. No expensive service, no subscription, and nothing left rotting in a drawer.
+pings me on Telegram — the message carries the file name, a Drive link, and a
+collapsible plain-language summary so I actually know what the letter says and
+what, if anything, I need to do. No expensive service, no subscription, and
+nothing left rotting in a drawer.
 
 **How I actually use it, day to day:**
 
 1. Open the letter.
 2. Feed the pages into the ES-50 — that's it, I'm done thinking about it.
 3. Forget about it: it's already saved as a PDF in Google Drive.
-4. A Telegram notification tells me it landed, with a link.
-5. If I want to know what it says, I tap **Summarize** and get it in plain
-   language — otherwise I just leave it.
+4. A Telegram notification tells me it landed, with the file name and a link.
+5. If I want to know what it says, I tap **"show more"** on the summary that's
+   already in the message — otherwise I just leave it collapsed.
 
 ---
 

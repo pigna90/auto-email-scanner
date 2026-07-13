@@ -8,10 +8,11 @@ import logging
 import os
 import shlex
 import sys
+import time
 from pathlib import Path
 
 from .config import Config, load_config
-from . import bot, scanner, session, upload
+from . import namer, scanner, session, upload
 from .merge import images_to_pdf, save_page_image
 from .scanner import ScanResult
 
@@ -88,10 +89,30 @@ def cmd_upload(cfg: Config, args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_bot(cfg: Config, args: argparse.Namespace) -> int:
-    # No scanner access needed — only Telegram, rclone, and the Anthropic API.
-    n = bot.poll_once(cfg)
-    log.info("Bot poll complete: %d summary request(s) handled.", n)
+def cmd_name(cfg: Config, args: argparse.Namespace) -> int:
+    # Test the combined title + category + summary Claude call on one PDF,
+    # without touching Drive.
+    pdf = Path(args.pdf).expanduser()
+    if not pdf.is_file():
+        print(f"No such file: {pdf}", file=sys.stderr)
+        return 2
+    if not cfg.anthropic_api_key:
+        print("No ANTHROPIC_API_KEY / anthropic_api_key configured.", file=sys.stderr)
+        return 2
+    print(f"Classifying {pdf.name} via Claude ({cfg.naming_claude_model})…")
+    print(f"  categories: {', '.join(cfg.categories)}")
+    t0 = time.monotonic()
+    result = namer.classify_document(cfg, pdf)
+    dt = time.monotonic() - t0
+    if result is None:
+        print(f"  FAILED (see log above)   [{dt:.1f}s]", file=sys.stderr)
+        return 1
+    print(f"  title   : {result.stem}.pdf")
+    print(f"  category: {result.category}")
+    print(f"  → {result.category}/{result.stem}.pdf   [{dt:.1f}s]")
+    print("  summary :")
+    for line in result.summary.splitlines():
+        print(f"    {line}")
     return 0
 
 
@@ -129,7 +150,8 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("output", help="destination .pdf (or .png) path")
     sub.add_parser("doctor", help="check scanner + environment")
     sub.add_parser("upload", help="move finished PDFs to Drive + notify Telegram")
-    sub.add_parser("bot", help="poll Telegram for summary-button taps + reply")
+    npar = sub.add_parser("name", help="test the LLM naming/foldering on one PDF")
+    npar.add_argument("pdf", help="path to a PDF to name")
     return p
 
 
@@ -138,7 +160,7 @@ _DISPATCH = {
     "scan-page": cmd_scan_page,
     "doctor": cmd_doctor,
     "upload": cmd_upload,
-    "bot": cmd_bot,
+    "name": cmd_name,
 }
 
 

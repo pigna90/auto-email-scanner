@@ -60,15 +60,6 @@ class Config:
     drive_remote: str = "MailScans:MailScans"
     # Skip PDFs younger than this many seconds — they may still be mid-write.
     upload_min_age: float = 60.0
-    # After uploading, a copy of each PDF is kept here (newest `local_cache_size`
-    # only) so a summary tapped right after the notification reads it locally
-    # instead of re-downloading from Drive. Kept outside output_dir so the
-    # uploader never re-uploads cached files. Best-effort — losing the cache
-    # just means the bot falls back to Drive.
-    cache_dir: Path = field(
-        default_factory=lambda: Path.home() / ".local/share/mailscan/cache"
-    )
-    local_cache_size: int = 10
 
     # --- Telegram notification (sent after a PDF lands on Drive) ---
     # Secrets: prefer the TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID environment
@@ -77,18 +68,71 @@ class Config:
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
 
-    # --- on-demand summary (the "Summarize" button → Claude), run by
-    #     mailscan-bot.timer. Purely on-demand: nothing here runs while scanning
-    #     or uploading. ---
+    # --- LLM classification + summary (one Claude call in the upload path) ---
     # Like the Telegram secrets, prefer the ANTHROPIC_API_KEY env var (it wins
     # over this field) so the key stays out of the checked-in config. Leave
-    # blank to disable summaries — the upload path then omits the button.
+    # blank to disable the LLM entirely — files then keep their timestamp name,
+    # go to `default_category`, and the Telegram message carries no summary.
     anthropic_api_key: str = ""
-    summary_model: str = "claude-haiku-4-5"
-    # Language the summary is written in (any language name the model
-    # understands, e.g. "Italian", "English", "German"). Only affects the LLM's
+    # Language the summary (shown inline in the Telegram message, inside an
+    # expandable blockquote) is written in — any language name the model
+    # understands, e.g. "Italian", "English", "German". Only affects the LLM's
     # output — all code/config text stays English.
     summary_language: str = "Italian"
+
+    # --- automatic classification (one Claude call → title + category +
+    #     summary), run in the upload path. Like the summary it is decoupled and
+    #     best-effort: it never runs in the scanner daemon, and any failure falls
+    #     back to the timestamp name / default category. See namer.py. ---
+    # Claude vision model that reads the whole PDF (reuses anthropic_api_key
+    # above). A blank key disables classification — files then keep their
+    # `mail_<ts>.pdf` name and go to `default_category`.
+    naming_claude_model: str = "claude-haiku-4-5"
+    # The document categories the LLM must choose from, each mapped to the Drive
+    # subfolder name and a description shown to the model to guide the choice.
+    # The keys are also the folder names created under the Drive remote. "other"
+    # is the catch-all / fallback. Override the whole set in config.toml under a
+    # [categories] table.
+    categories: dict = field(
+        default_factory=lambda: {
+            "medical": (
+                "Health and medical matters: doctors, hospitals, prescriptions, "
+                "lab results and medical reports, therapy, vaccinations — "
+                "anything health-related."
+            ),
+            "insurance": (
+                "Insurance policies, contributions and claims of any kind: "
+                "health insurance (Krankenkasse/AOK), liability (Haftpflicht), "
+                "car (KFZ), home/contents (Hausrat), life, legal protection."
+            ),
+            "finance": (
+                "Banking and money: bank and account statements, the tax office "
+                "and tax returns, invoices and bills to be paid, payment and "
+                "transfer confirmations, salary and payslips, loans, investments."
+            ),
+            "household": (
+                "Home and utilities: electricity, gas, water, heating, internet, "
+                "telephone/mobile, rent and landlord correspondence, home "
+                "services and repairs."
+            ),
+            "government": (
+                "Official and state communications: city hall/Bürgeramt, tax "
+                "authority, police, courts, residence and registration, "
+                "pensions, the public broadcasting fee (Rundfunkbeitrag/ARD/ZDF)."
+            ),
+            "other": "Anything that does not clearly belong to a category above.",
+        }
+    )
+    # Where a document goes when the model can't be made to pick a valid category
+    # (must be one of the keys above).
+    default_category: str = "other"
+    # If the model returns a category that isn't one of the keys, re-ask this
+    # many extra times before falling back to `default_category`.
+    classify_max_retries: int = 3
+    # Language the LLM writes the file name (title) in — it translates into this
+    # from whatever language the document is in. English keeps names uniform
+    # regardless of the (often German) source document.
+    naming_language: str = "English"
 
     @classmethod
     def load(cls, explicit: str | os.PathLike | None = None) -> "Config":
@@ -102,7 +146,7 @@ class Config:
         for key, value in data.items():
             if key not in known:
                 continue
-            if key in ("output_dir", "work_dir", "cache_dir"):
+            if key in ("output_dir", "work_dir"):
                 value = Path(os.path.expanduser(str(value)))
             kwargs[key] = value
         cfg = cls(**kwargs)

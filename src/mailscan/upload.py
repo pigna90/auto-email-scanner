@@ -14,60 +14,18 @@ from __future__ import annotations
 import html
 import json
 import logging
-import shutil
 import subprocess
 import time
 import urllib.parse
 import urllib.request
 from pathlib import Path
 
+from . import namer
 from .config import Config
 
 log = logging.getLogger("mailscan")
 
 _TELEGRAM_TIMEOUT = 15  # seconds; a slow bot must not wedge the uploader
-
-# Label on the inline button that requests an AI summary. Its callback carries
-# "sum:<pdf_name>"; mailscan-bot.timer polls for the tap (see bot.py). The name
-# (not the Drive id) lets the bot read a local cache copy without a Drive call.
-SUMMARY_BUTTON_LABEL = "🧠 Summarize"
-SUMMARY_CALLBACK_PREFIX = "sum:"
-
-
-def build_summary_keyboard(name: str) -> str:
-    """JSON `reply_markup` for a one-button "summarize this PDF" keyboard.
-
-    callback_data is "sum:<pdf_name>" — our names are ~28 chars, well under
-    Telegram's 64-byte callback_data limit."""
-    return json.dumps(
-        {
-            "inline_keyboard": [
-                [
-                    {
-                        "text": SUMMARY_BUTTON_LABEL,
-                        "callback_data": f"{SUMMARY_CALLBACK_PREFIX}{name}",
-                    }
-                ]
-            ]
-        }
-    )
-
-
-def _prune_cache(cache_dir: Path, keep: int) -> None:
-    """Keep only the newest `keep` PDFs in the cache dir; delete the rest."""
-    pdfs = sorted(
-        cache_dir.glob("*.pdf"), key=lambda p: p.stat().st_mtime, reverse=True
-    )
-    for old in pdfs[keep:]:
-        old.unlink(missing_ok=True)
-
-
-def _cache_pdf(cfg: Config, pdf: Path) -> None:
-    """Stash a local copy of a just-scanned PDF (before it's moved to Drive),
-    then prune the cache to the newest `local_cache_size` files."""
-    cfg.cache_dir.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(pdf, cfg.cache_dir / pdf.name)
-    _prune_cache(cfg.cache_dir, cfg.local_cache_size)
 
 
 def drive_view_link(file_id: str) -> str:
@@ -78,18 +36,30 @@ def drive_view_link(file_id: str) -> str:
     return f"https://drive.google.com/file/d/{file_id}/view"
 
 
-def format_message(name: str, link: str | None) -> str:
+def format_message(name: str, link: str | None, summary: str = "") -> str:
     """The Telegram message body (HTML) for a freshly-uploaded PDF.
 
-    Sent with parse_mode=HTML so the URL hides behind a "Drive link" label
-    instead of showing the raw address. *name* is unused in the body (kept short
-    on purpose) but still logged by the caller."""
+    Sent with parse_mode=HTML. Shows the final file name (so the owner knows
+    which document it is at a glance) and the Drive link behind a label. The
+    `summary` from the classify call rides along inside an *expandable*
+    blockquote: Telegram renders it collapsed with a native "show more" control,
+    so it never floods the chat. The model writes plain text (no Markdown); we
+    strip any stray bold markers it emits and HTML-escape the rest."""
+    safe_name = html.escape(name)
+    lines = [f"\U0001F4EC <b>{safe_name}</b>"]
     if link:
-        return (
-            "\U0001F4EC New document scanned.\n"
+        lines.append(
             f'\U0001F517 <a href="{html.escape(link, quote=True)}">Drive link</a>'
         )
-    return "\U0001F4EC New document scanned.\n(Drive link unavailable)"
+    else:
+        lines.append("(Drive link unavailable)")
+    body = "\n".join(lines)
+
+    summary = (summary or "").strip()
+    if summary:
+        clean = html.escape(summary.replace("**", "").replace("__", ""))
+        body += f"\n<blockquote expandable>{clean}</blockquote>"
+    return body
 
 
 def _rclone(args: list[str], *, capture: bool = False) -> subprocess.CompletedProcess:
@@ -102,16 +72,24 @@ def _rclone(args: list[str], *, capture: bool = False) -> subprocess.CompletedPr
     )
 
 
-def _move_to_drive(cfg: Config, pdf: Path) -> None:
-    """rclone-move one PDF to the Drive remote (verifies hash, then deletes)."""
-    dest = f"{cfg.drive_remote}/{pdf.name}"
+def _drive_dir(cfg: Config, folder: str) -> str:
+    """The rclone remote path for a folder — the remote itself when blank, else
+    a subfolder under it (rclone creates parents on moveto)."""
+    return f"{cfg.drive_remote}/{folder}" if folder else cfg.drive_remote
+
+
+def _move_to_drive(cfg: Config, pdf: Path, name: str, folder: str) -> None:
+    """rclone-move one PDF to `<remote>/<folder>/<name>` (verifies hash, then
+    deletes the local original). moveto both renames and files it in one step."""
+    dest = f"{_drive_dir(cfg, folder)}/{name}"
     _rclone(["moveto", str(pdf), dest, "--log-level", "INFO"])
 
 
-def _drive_file_id(cfg: Config, name: str) -> str | None:
+def _drive_file_id(cfg: Config, name: str, folder: str) -> str | None:
     """Read back the Drive file id for a just-uploaded PDF, or None."""
     proc = _rclone(
-        ["lsjson", cfg.drive_remote, "--files-only", "--include", "/" + name],
+        ["lsjson", _drive_dir(cfg, folder),
+         "--files-only", "--include", "/" + name],
         capture=True,
     )
     for item in json.loads(proc.stdout or "[]"):
@@ -120,18 +98,8 @@ def _drive_file_id(cfg: Config, name: str) -> str | None:
     return None
 
 
-def send_telegram(
-    token: str,
-    chat_id: str,
-    text: str,
-    *,
-    reply_markup: str | None = None,
-    reply_to: int | None = None,
-) -> None:
-    """POST a message to the Telegram Bot API. Raises on HTTP/network error.
-
-    reply_markup is a JSON string (e.g. an inline keyboard); reply_to threads
-    the message under an existing one (used for summary replies)."""
+def send_telegram(token: str, chat_id: str, text: str) -> None:
+    """POST a message to the Telegram Bot API. Raises on HTTP/network error."""
     url = f"https://api.telegram.org/bot{token}/sendMessage"
     fields = {
         "chat_id": chat_id,
@@ -139,28 +107,23 @@ def send_telegram(
         "parse_mode": "HTML",
         "disable_web_page_preview": "true",
     }
-    if reply_markup is not None:
-        fields["reply_markup"] = reply_markup
-    if reply_to is not None:
-        fields["reply_to_message_id"] = str(reply_to)
     data = urllib.parse.urlencode(fields).encode()
     req = urllib.request.Request(url, data=data, method="POST")
     with urllib.request.urlopen(req, timeout=_TELEGRAM_TIMEOUT) as resp:
         resp.read()  # drain; a 2xx with ok:true is all we need
 
 
-def _notify(cfg: Config, name: str, link: str | None) -> None:
+def _notify(cfg: Config, name: str, link: str | None, summary: str = "") -> None:
     """Best-effort Telegram notification — the PDF is already safe on Drive.
 
-    Attaches the "Summarize" button (callback "sum:<name>") whenever an Anthropic
-    key is configured, so the button actually works when tapped."""
+    The classify summary (when present) rides along in an expandable blockquote,
+    so the whole story is in the one message with no follow-up round-trip."""
     token, chat = cfg.telegram_bot_token, cfg.telegram_chat_id
     if not (token and chat):
         log.info("Telegram not configured; skipping notification for %s", name)
         return
-    markup = build_summary_keyboard(name) if cfg.anthropic_api_key else None
     try:
-        send_telegram(token, chat, format_message(name, link), reply_markup=markup)
+        send_telegram(token, chat, format_message(name, link, summary))
         log.info("Notified Telegram: %s", name)
     except Exception:  # noqa: BLE001 - a failed ping must not fail the upload
         log.exception("Telegram notification failed for %s", name)
@@ -188,29 +151,35 @@ def upload_pending(cfg: Config) -> int:
 
     uploaded = 0
     for pdf in pdfs:
-        name = pdf.name
-        # Stash a local copy first (moveto deletes the original), so a summary
-        # tapped right after the notification reads it locally. Best-effort.
-        try:
-            _cache_pdf(cfg, pdf)
-        except Exception:  # noqa: BLE001 - the cache is a convenience, not critical
-            log.exception("Could not cache %s locally", name)
+        # One Claude call → title, category and summary (best-effort; None falls
+        # back to the timestamp name and the default category). Runs before the
+        # cache copy and moveto so both use the final name.
+        result = namer.classify_document(cfg, pdf)
+        if result is not None:
+            name = f"{result.stem}.pdf"
+            folder = result.category
+            summary = result.summary
+            log.info("Classified %s → %s/%s", pdf.name, folder, name)
+        else:
+            name = pdf.name
+            folder = cfg.default_category
+            summary = ""
 
         try:
-            _move_to_drive(cfg, pdf)
+            _move_to_drive(cfg, pdf, name, folder)
         except subprocess.CalledProcessError as exc:
             log.error("Upload failed for %s (kept locally, will retry): %s",
-                      name, (exc.stderr or "").strip() or exc)
+                      pdf.name, (exc.stderr or "").strip() or exc)
             continue
         uploaded += 1
-        log.info("Uploaded to Drive: %s", name)
+        log.info("Uploaded to Drive: %s/%s", folder or "(root)", name)
 
         link = None
         try:
-            fid = _drive_file_id(cfg, name)
+            fid = _drive_file_id(cfg, name, folder)
             link = drive_view_link(fid) if fid else None
         except Exception:  # noqa: BLE001 - link lookup is non-critical
             log.exception("Could not resolve Drive link for %s", name)
-        _notify(cfg, name, link)
+        _notify(cfg, name, link, summary)
 
     return uploaded
