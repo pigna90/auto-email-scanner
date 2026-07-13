@@ -44,6 +44,24 @@ def _ensure_sane() -> None:
         _sane_ready = True
 
 
+def _reset_sane() -> None:
+    """Tear libsane down so the next _ensure_sane() re-enumerates the USB bus.
+
+    SANE snapshots the USB device list at sane.init() and never refreshes it on
+    its own. After the ES-50 is physically unplugged and replugged it comes back
+    with a NEW bus/device number, which the stale enumeration can't see — so the
+    long-lived daemon keeps failing to find a scanner that a fresh `scanimage`
+    process (with its own init) finds fine. Re-initialising is the only way to
+    pick it back up without restarting the whole daemon.
+    """
+    global _sane_ready
+    try:
+        sane.exit()
+    except Exception:  # noqa: BLE001 - tearing down an already-broken lib is fine
+        pass
+    _sane_ready = False
+
+
 def present(cfg: Config) -> bool:
     """True if the scanner is on the USB bus (i.e. awake). Reads sysfs."""
     vid, pid = cfg.vid_pid
@@ -79,8 +97,16 @@ class ScannerSession:
         self._dev = None
 
     def __enter__(self) -> "ScannerSession":
-        _ensure_sane()
         name = find_device(self.cfg)
+        if not name and present(self.cfg):
+            # sysfs says the scanner is on the USB bus, but SANE can't see it:
+            # its device enumeration is stale (typically an unplug/replug gave
+            # the scanner a new bus/device number). Re-initialising libsane is
+            # the only way to refresh that list — do it once, then look again.
+            log.info("Scanner on the USB bus but invisible to SANE — "
+                     "re-initialising SANE to recover.")
+            _reset_sane()
+            name = find_device(self.cfg)
         if not name:
             raise RuntimeError("scanner not found by SANE (asleep or disconnected?)")
         self._dev = sane.open(name)
