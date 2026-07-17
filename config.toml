@@ -22,6 +22,15 @@ poll_interval        = 2.0
 # waiting and re-arm a scan session anyway — otherwise a scanner that won't
 # disconnect leaves the daemon deaf to fed sheets.
 sleep_wait_timeout   = 120.0
+# Re-arming keeps poking the scanner over USB; do it forever and it never idles
+# long enough to sleep and reset, which eventually wedges the firmware. After
+# this many back-to-back sessions with nothing fed, stop brisk re-arming and let
+# it sleep (a fed sheet resets the count, so consecutive mail items still scan).
+max_idle_rearms      = 2
+# Once backed off, wait this long — poking nothing — for the scanner to sleep on
+# its own before re-arming a single check. Longer than sleep_wait_timeout by
+# design: the point is to leave it alone so its firmware can reset.
+idle_sleep_wait_timeout = 300.0
 
 # --- wake behaviour ---
 # true  = stay silent while the scanner sleeps; wake on button press (udev).

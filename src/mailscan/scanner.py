@@ -31,6 +31,15 @@ _NO_DOCS_MARKERS = ("out of documents", "no documents", "no more documents")
 _sane_ready = False
 
 
+class ScannerWedged(RuntimeError):
+    """The scanner is on the USB bus but unreachable by SANE even after a fresh
+    re-init. This is the ES-50's hung-firmware state: no software/bus reset
+    clears it, only a physical power cycle (unplug/replug the USB cable). Raised
+    so the daemon can escalate (alert the owner) instead of silently retrying —
+    distinct from a plain "asleep/disconnected", which is a normal waiting state.
+    """
+
+
 class ScanResult(Enum):
     PAGE = "page"          # a sheet was scanned
     NO_DOCS = "no_docs"    # feeder empty (keep waiting)
@@ -107,9 +116,21 @@ class ScannerSession:
                      "re-initialising SANE to recover.")
             _reset_sane()
             name = find_device(self.cfg)
+            if not name:
+                # Still invisible after a fresh init while sysfs says it's on the
+                # bus: the firmware is hung (see ScannerWedged). No amount of
+                # retrying here clears that — only a power cycle does.
+                raise ScannerWedged(
+                    "scanner on the USB bus but unreachable by SANE — "
+                    "hung firmware; needs a physical unplug/replug"
+                )
         if not name:
             raise RuntimeError("scanner not found by SANE (asleep or disconnected?)")
         self._dev = sane.open(name)
+        # Clear any engine state a previous aborted/wedged session may have left
+        # behind before we issue the first start() — a lingering "busy" is what
+        # eventually stops the ES-50 answering SANE at all (see _safe_cancel).
+        self._safe_cancel()
         # Best-effort parameter setup; not all firmwares expose every option.
         for attr, value in (("source", self.cfg.source),
                             ("mode", self.cfg.mode),

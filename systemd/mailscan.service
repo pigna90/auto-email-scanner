@@ -8,6 +8,12 @@
 #
 # SupplementaryGroups=scanner gives the service access to the ES-50 via the
 # udev rule, so no `sg`/re-exec dance is needed here.
+#
+# EnvironmentFile= supplies TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID (see
+# .env.example) so the daemon can alert you when the scanner wedges (on the USB
+# bus but unreachable by SANE — needs a physical unplug/replug). The leading `-`
+# makes it optional: no file / blank creds just disables the alert. Same file
+# the upload unit loads.
 
 [Unit]
 Description=mailscan — auto-scan fed sheets into one PDF per mail item
@@ -18,6 +24,7 @@ Type=simple
 User=alessandro.romano
 SupplementaryGroups=scanner
 WorkingDirectory=/home/alessandro.romano/mailscan
+EnvironmentFile=-/home/alessandro.romano/mailscan/.env
 ExecStart=/home/alessandro.romano/mailscan/.venv/bin/mailscan run
 Restart=on-failure
 RestartSec=5

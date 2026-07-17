@@ -39,6 +39,21 @@ class Config:
     # seconds (some ES-50 firmware does this instead of disconnecting), give up
     # waiting and re-arm a scan session anyway, so a fed sheet is never ignored.
     sleep_wait_timeout: float = 120.0
+    # How many times to re-arm a fresh polling session after scanning has gone
+    # quiet before backing off. Re-arming keeps the scanner awake (each poll pokes
+    # it over USB); doing it forever means it never idles long enough to sleep and
+    # reset its firmware, which eventually wedges it. So after this many
+    # consecutive sessions with zero sheets fed, stop the brisk re-arm and switch
+    # to the patient wait below, leaving the scanner alone so it can sleep.
+    # A sheet fed during active use resets the count, so back-to-back mail items
+    # are always caught promptly.
+    max_idle_rearms: int = 2
+    # Once backed off (see max_idle_rearms), wait this long — poking nothing — for
+    # the scanner to sleep on its own. This quiet window is what lets its firmware
+    # reset. Only if it still refuses to disconnect do we re-arm one more session
+    # to check for a late-fed sheet, then go quiet again. Longer than
+    # sleep_wait_timeout on purpose: the whole point is to stop poking it.
+    idle_sleep_wait_timeout: float = 300.0
 
     # --- wake behaviour ---
     # If True, when idle we wait (via udev) for the scanner to reconnect
